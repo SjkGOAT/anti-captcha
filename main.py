@@ -59,7 +59,10 @@ logging.basicConfig(
         logging.StreamHandler(sys.stdout),
         logging.FileHandler("anticaptcha.log"),
     ],
+    force=True,
 )
+# Flush stdout immediately so logs appear in real time (important for systemd/pipes)
+sys.stdout.reconfigure(line_buffering=True)
 log = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -129,6 +132,10 @@ def extend_vps(page, model):
     log.info("Navigating to VPS dashboard: %s", WEBSITE_URL)
     page.goto(WEBSITE_URL, wait_until="networkidle")
 
+    log.info("Waiting 45 seconds for dashboard to fully load...")
+    page.wait_for_timeout(45_000)
+    log.info("Done waiting. Looking for +60 min button...")
+
     log.info("Clicking +60 min button...")
     page.wait_for_selector(EXTEND_BUTTON_SELECTOR, timeout=20_000)
     page.click(EXTEND_BUTTON_SELECTOR)
@@ -169,9 +176,12 @@ def run():
         page = context.new_page()
 
         login(page)
-        log.info("Logged in. Starting extension loop every %d minutes.", INTERVAL_MINUTES)
+        log.info("Logged in. Extending immediately, then every %d minutes.", INTERVAL_MINUTES)
 
+        cycle = 0
         while True:
+            cycle += 1
+            log.info("--- Extension cycle #%d ---", cycle)
             try:
                 extend_vps(page, model)
             except PlaywrightTimeout as e:
@@ -187,7 +197,7 @@ def run():
                 except Exception as re_login_err:
                     log.error("Re-login after error failed: %s", re_login_err)
 
-            log.info("Sleeping %d minutes...", INTERVAL_MINUTES)
+            log.info("Next extension in %d minutes.", INTERVAL_MINUTES)
             time.sleep(INTERVAL_MINUTES * 60)
 
 
