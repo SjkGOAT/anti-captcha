@@ -8,10 +8,13 @@ INSTALL_DIR="/opt/anti-captcha"
 
 echo "==> Installing system dependencies..."
 apt-get update -qq
+# Ubuntu 24.04 renamed several packages with a t64 suffix — install whichever exists
+LIBASOUND="libasound2t64"
+dpkg -l libasound2t64 &>/dev/null || LIBASOUND="libasound2"
+
 apt-get install -y python3 python3-venv python3-pip \
-    libglib2.0-0 libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 \
-    libcups2 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-    libxfixes3 libxrandr2 libgbm1 libasound2
+    libnss3 libnspr4 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
+    libxfixes3 libxrandr2 libgbm1 "$LIBASOUND"
 
 echo "==> Copying project files to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
