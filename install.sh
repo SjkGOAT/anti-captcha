@@ -6,18 +6,9 @@ set -e
 
 INSTALL_DIR="/opt/anti-captcha"
 
-echo "==> Installing system dependencies..."
+echo "==> Installing base system packages..."
 apt-get update -qq
-# Ubuntu 24.04 renamed libasound2 to libasound2t64 — pick whichever apt knows about
-if apt-cache show libasound2t64 &>/dev/null 2>&1; then
-    LIBASOUND="libasound2t64"
-else
-    LIBASOUND="libasound2"
-fi
-
-apt-get install -y python3 python3-venv python3-pip \
-    libnss3 libnspr4 libdrm2 libxkbcommon0 libxcomposite1 libxdamage1 \
-    libxfixes3 libxrandr2 libgbm1 "$LIBASOUND"
+apt-get install -y python3 python3-venv python3-pip
 
 echo "==> Copying project files to $INSTALL_DIR..."
 mkdir -p "$INSTALL_DIR"
@@ -30,6 +21,9 @@ python3 -m venv "$INSTALL_DIR/venv"
 
 echo "==> Installing Playwright browser (Chromium)..."
 "$INSTALL_DIR/venv/bin/playwright" install chromium
+
+echo "==> Installing Playwright browser system dependencies..."
+"$INSTALL_DIR/venv/bin/playwright" install-deps chromium
 
 echo "==> Installing systemd service..."
 cp "$INSTALL_DIR/anticaptcha.service" /etc/systemd/system/anticaptcha.service
