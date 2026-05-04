@@ -1,0 +1,6 @@
+.env
+browser_data/
+anticaptcha.log
+__pycache__/
+*.pyc
+*.pyo
