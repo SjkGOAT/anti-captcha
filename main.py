@@ -176,6 +176,7 @@ def run():
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
         page = context.new_page()
+        page.set_default_timeout(60_000)
 
         login(page)
         log.info("Logged in. Extending immediately, then every %d minutes.", INTERVAL_MINUTES)
