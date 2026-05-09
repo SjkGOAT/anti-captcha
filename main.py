@@ -115,16 +115,18 @@ def is_logged_in(page) -> bool:
 
 def login(page):
     log.info("Navigating to login page: %s", LOGIN_URL)
-    page.goto(LOGIN_URL, wait_until="networkidle")
+    page.goto(LOGIN_URL, wait_until="domcontentloaded")
 
     if is_logged_in(page):
         log.info("Already logged in — skipping login form.")
         return
 
+    log.info("Waiting for username field...")
+    page.wait_for_selector(USERNAME_SELECTOR, timeout=60_000)
     page.fill(USERNAME_SELECTOR, SITE_USERNAME)
     page.fill(PASSWORD_SELECTOR, SITE_PASSWORD)
     page.click(LOGIN_SUBMIT_SELECTOR)
-    page.wait_for_load_state("networkidle")
+    page.wait_for_load_state("domcontentloaded")
     log.info("Login submitted.")
 
 
