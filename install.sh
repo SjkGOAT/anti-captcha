@@ -39,7 +39,9 @@ apt-get install -y \
     libglib2.0-0t64 \
     libx11-6 \
     libxcb1 \
-    libxext6
+    libxext6 \
+    libpango-1.0-0 \
+    libcairo2
 
 echo "==> Installing systemd service..."
 cp "$INSTALL_DIR/anticaptcha.service" /etc/systemd/system/anticaptcha.service
