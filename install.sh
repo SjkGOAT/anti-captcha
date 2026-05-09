@@ -10,9 +10,13 @@ echo "==> Installing base system packages..."
 apt-get update -qq
 apt-get install -y python3 python3-venv python3-pip
 
-echo "==> Copying project files to $INSTALL_DIR..."
-mkdir -p "$INSTALL_DIR"
-cp -r . "$INSTALL_DIR/"
+echo "==> Setting up project files in $INSTALL_DIR..."
+if [ -d "$INSTALL_DIR/.git" ]; then
+    git -C "$INSTALL_DIR" fetch origin
+    git -C "$INSTALL_DIR" reset --hard origin/master
+else
+    git clone https://github.com/SjkGOAT/anti-captcha.git "$INSTALL_DIR"
+fi
 
 echo "==> Creating Python virtual environment..."
 python3 -m venv "$INSTALL_DIR/venv"
