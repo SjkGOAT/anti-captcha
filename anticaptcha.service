@@ -1,0 +1,18 @@
+[Unit]
+Description=VPS Auto-Extender (CAPTCHA solver)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Change the path below to wherever you cloned/copied this project
+WorkingDirectory=/opt/anti-captcha
+ExecStart=/opt/anti-captcha/venv/bin/python main.py
+Restart=always
+RestartSec=30
+# Prevent runaway restarts
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+[Install]
+WantedBy=multi-user.target
