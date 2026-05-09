@@ -22,11 +22,24 @@ python3 -m venv "$INSTALL_DIR/venv"
 echo "==> Installing Playwright browser (Chromium)..."
 "$INSTALL_DIR/venv/bin/playwright" install chromium
 
-echo "==> Pre-installing Ubuntu 24.04 renamed audio library..."
-apt-get install -y libasound2t64
-
-echo "==> Installing Playwright browser system dependencies..."
-"$INSTALL_DIR/venv/bin/playwright" install-deps chromium
+echo "==> Installing Playwright browser system dependencies (Ubuntu 24.04 compatible)..."
+apt-get install -y \
+    libnss3 \
+    libnspr4 \
+    libatk1.0-0t64 \
+    libatk-bridge2.0-0t64 \
+    libatspi2.0-0t64 \
+    libxcomposite1 \
+    libxdamage1 \
+    libxfixes3 \
+    libxrandr2 \
+    libgbm1 \
+    libasound2t64 \
+    libcups2t64 \
+    libglib2.0-0t64 \
+    libx11-6 \
+    libxcb1 \
+    libxext6
 
 echo "==> Installing systemd service..."
 cp "$INSTALL_DIR/anticaptcha.service" /etc/systemd/system/anticaptcha.service
