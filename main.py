@@ -119,16 +119,20 @@ def login(page):
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
     log.info("Page landed on: %s", page.url)
 
-    if is_logged_in(page):
-        log.info("Already logged in — skipping login form.")
+    log.info("Waiting 10 seconds before checking URL...")
+    page.wait_for_timeout(10_000)
+    log.info("URL after 10s: %s", page.url)
+
+    if page.url.rstrip("/") != LOGIN_URL.rstrip("/"):
+        log.info("Not on login page — already redirected to dashboard, skipping login.")
         return
 
-    log.info("Waiting for username field (%s)...", USERNAME_SELECTOR)
+    log.info("Still on login page, proceeding with login...")
     try:
-        page.wait_for_selector(USERNAME_SELECTOR, timeout=60_000)
+        page.wait_for_selector(USERNAME_SELECTOR, timeout=30_000)
     except PlaywrightTimeout:
         page.screenshot(path="login_debug.png")
-        log.error("Username field not found after 60s. URL: %s — saved screenshot to login_debug.png", page.url)
+        log.error("Username field not found. URL: %s — saved screenshot to login_debug.png", page.url)
         raise
 
     page.fill(USERNAME_SELECTOR, SITE_USERNAME)
@@ -142,8 +146,8 @@ def extend_vps(page, model):
     log.info("Navigating to VPS dashboard: %s", WEBSITE_URL)
     page.goto(WEBSITE_URL, wait_until="networkidle")
 
-    log.info("Waiting 2 minutes for dashboard to fully load...")
-    page.wait_for_timeout(120_000)
+    log.info("Waiting 45 seconds for dashboard to fully load...")
+    page.wait_for_timeout(45_000)
     log.info("Done waiting. Looking for +60 min button...")
 
     log.info("Clicking +60 min button...")
