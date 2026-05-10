@@ -6,11 +6,14 @@ Solves the CAPTCHA pop-up using Gemini Vision and extends the VPS session on a s
 
 import os
 import io
+import re
 import sys
 import time
 import random
 import logging
 from pathlib import Path
+
+import requests
 
 from dotenv import load_dotenv
 import google.generativeai as genai
@@ -49,6 +52,7 @@ INTERVAL_MINUTES       = int(os.getenv("INTERVAL_MINUTES", "15"))
 USER_DATA_DIR          = os.getenv("USER_DATA_DIR", "./browser_data")
 HEADLESS               = os.getenv("HEADLESS", "true").lower() != "false"
 PROXY_SERVER           = os.getenv("PROXY_SERVER", "")
+CAPSOLVER_API_KEY      = os.getenv("CAPSOLVER_API_KEY", "")
 
 _STEALTH_JS = (
     "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
@@ -118,6 +122,41 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # Browser actions
 # ---------------------------------------------------------------------------
 
+def _capsolver_get_turnstile_token(page_url: str, site_key: str) -> str | None:
+    """Ask CapSolver to solve a Cloudflare Turnstile challenge and return the token."""
+    try:
+        r = requests.post("https://api.capsolver.com/createTask", json={
+            "clientKey": CAPSOLVER_API_KEY,
+            "task": {
+                "type": "AntiTurnstileTaskProxyLess",
+                "websiteURL": page_url,
+                "websiteKey": site_key,
+                "metadata": {"action": ""},
+            },
+        }, timeout=15)
+        task_id = r.json().get("taskId")
+        if not task_id:
+            log.error("CapSolver createTask failed: %s", r.json())
+            return None
+        log.info("CapSolver task %s created, polling for result...", task_id)
+        for _ in range(40):
+            time.sleep(3)
+            res = requests.post("https://api.capsolver.com/getTaskResult", json={
+                "clientKey": CAPSOLVER_API_KEY,
+                "taskId": task_id,
+            }, timeout=10).json()
+            if res.get("status") == "ready":
+                token = res["solution"].get("token")
+                log.info("CapSolver token received: %s...", token[:30] if token else None)
+                return token
+            if res.get("status") == "failed":
+                log.error("CapSolver task failed: %s", res)
+                return None
+    except Exception as e:
+        log.error("CapSolver error: %s", e)
+    return None
+
+
 def _wait_for_cf_frame(page, timeout_ms=25_000):
     """Poll page.frames until a challenges.cloudflare.com frame appears."""
     deadline = time.time() + timeout_ms / 1000
@@ -139,18 +178,35 @@ def _click_cf_challenge(page) -> bool:
         log.info("CF — no iframe after 25s. frames: %s", [f.url for f in page.frames])
     else:
         log.info("CF iframe ready: %s", cf_frame.url)
+
+        # ── CapSolver path (preferred when API key is configured) ────────────
+        if CAPSOLVER_API_KEY:
+            m = re.search(r'/(0x[0-9A-Za-z]+)/', cf_frame.url or "")
+            site_key = m.group(1) if m else None
+            if site_key:
+                token = _capsolver_get_turnstile_token(page.url, site_key)
+                if token:
+                    submitted = page.evaluate("""(token) => {
+                        const inp = document.querySelector('[name="cf-turnstile-response"]');
+                        if (inp) inp.value = token;
+                        const form = document.getElementById('challenge-form');
+                        if (form) { form.submit(); return true; }
+                        return false;
+                    }""", token)
+                    if submitted:
+                        log.info("CF challenge form submitted with CapSolver token.")
+                        try:
+                            page.wait_for_load_state("domcontentloaded", timeout=30_000)
+                        except Exception:
+                            pass
+                        return True
+                    log.warning("CF form not found on page after getting token.")
+
+        # ── Fallback: direct click attempts ──────────────────────────────────
         try:
             cf_frame.wait_for_load_state("domcontentloaded", timeout=8_000)
         except Exception:
             pass
-
-        # Log what's actually in the iframe to help debug selectors
-        try:
-            log.info("CF iframe HTML: %.600s", cf_frame.content())
-        except Exception:
-            pass
-
-        # Try normal clicks first (fast timeout so we don't stall)
         for sel in (".ctp-checkbox-label", "[role='checkbox']", "input[type='checkbox']",
                     "label", "div[tabindex]", "button"):
             try:
@@ -159,15 +215,12 @@ def _click_cf_challenge(page) -> bool:
                 return True
             except Exception:
                 pass
-
-        # Force a JS-level click on the body — bypasses all actionability checks
         try:
             cf_frame.evaluate("document.body.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
             log.info("JS-dispatched click on CF iframe body.")
             return True
         except Exception as e:
             log.warning("JS body click failed: %s", e)
-
         log.warning("CF iframe present but no element clicked.")
 
     # Fallback: elements on the main challenge page
