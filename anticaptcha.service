@@ -8,7 +8,8 @@ Type=simple
 # Change the path below to wherever you cloned/copied this project
 WorkingDirectory=/opt/anti-captcha
 ExecStartPre=/usr/bin/git -C /opt/anti-captcha pull --ff-only origin master
-ExecStart=/opt/anti-captcha/venv/bin/python main.py
+Environment=HEADLESS=false
+ExecStart=/usr/bin/xvfb-run -a /opt/anti-captcha/venv/bin/python main.py
 Restart=always
 RestartSec=30
 # Prevent runaway restarts

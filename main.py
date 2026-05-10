@@ -131,9 +131,13 @@ def login(page):
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
     log.info("Page landed on: %s", page.url)
 
-    log.info("Waiting 20 seconds before checking URL...")
-    page.wait_for_timeout(20_000)
-    log.info("URL after 20s: %s  title=%r", page.url, page.title())
+    # Poll until Cloudflare challenge clears (up to 90 s)
+    cf_deadline = time.time() + 90
+    while time.time() < cf_deadline:
+        if "just a moment" not in page.title().lower():
+            break
+        page.wait_for_timeout(2_000)
+    log.info("CF wait done. URL=%s  title=%r", page.url, page.title())
 
     if page.url.rstrip("/") != LOGIN_URL.rstrip("/"):
         log.info("Not on login page — already redirected to dashboard, skipping login.")

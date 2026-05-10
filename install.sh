@@ -8,7 +8,7 @@ INSTALL_DIR="/opt/anti-captcha"
 
 echo "==> Installing base system packages..."
 apt-get update -qq
-apt-get install -y python3 python3-venv python3-pip
+apt-get install -y python3 python3-venv python3-pip xvfb
 
 echo "==> Setting up project files in $INSTALL_DIR..."
 if [ -d "$INSTALL_DIR/.git" ]; then
