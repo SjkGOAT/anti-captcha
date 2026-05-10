@@ -117,26 +117,36 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # Browser actions
 # ---------------------------------------------------------------------------
 
+def _wait_for_cf_frame(page, timeout_ms=12_000):
+    """Poll until a challenges.cloudflare.com frame is present, then return it."""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for frame in page.frames:
+            if "challenges.cloudflare.com" in (frame.url or ""):
+                return frame
+        page.wait_for_timeout(500)
+    return None
+
+
 def _click_cf_challenge(page) -> bool:
     """Click the Cloudflare 'Are you human?' Turnstile widget, if present."""
-    frame_urls = [f.url for f in page.frames]
-    log.info("CF debug — frames: %s", frame_urls)
-    log.info("CF debug — page HTML head: %.800s", page.content())
-
-    for frame in page.frames:
-        if "challenges.cloudflare.com" in (frame.url or ""):
-            log.info("CF iframe: %s", frame.url)
+    cf_frame = _wait_for_cf_frame(page)
+    if cf_frame:
+        log.info("CF iframe ready: %s", cf_frame.url)
+        try:
+            cf_frame.wait_for_load_state("domcontentloaded", timeout=8_000)
+        except Exception:
+            pass
+        for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button", "body"):
             try:
-                frame.wait_for_load_state("domcontentloaded", timeout=8_000)
+                cf_frame.locator(sel).first.click(timeout=3_000)
+                log.info("Clicked CF iframe element (%s).", sel)
+                return True
             except Exception:
                 pass
-            for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button", "body"):
-                try:
-                    frame.locator(sel).first.click(timeout=3_000)
-                    log.info("Clicked CF iframe element (%s).", sel)
-                    return True
-                except Exception:
-                    pass
+        log.warning("CF iframe found but no element clicked.")
+    else:
+        log.info("CF debug — no challenges iframe yet. frames: %s", [f.url for f in page.frames])
 
     # Fallback: elements directly on the challenge page
     for sel in ("button:has-text('human')", "button:has-text('erify')",
