@@ -119,6 +119,10 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 
 def _click_cf_challenge(page) -> bool:
     """Click the Cloudflare 'Are you human?' Turnstile widget, if present."""
+    frame_urls = [f.url for f in page.frames]
+    log.info("CF debug — frames: %s", frame_urls)
+    log.info("CF debug — page HTML head: %.800s", page.content())
+
     for frame in page.frames:
         if "challenges.cloudflare.com" in (frame.url or ""):
             log.info("CF iframe: %s", frame.url)
@@ -126,7 +130,6 @@ def _click_cf_challenge(page) -> bool:
                 frame.wait_for_load_state("domcontentloaded", timeout=8_000)
             except Exception:
                 pass
-            # Turnstile uses .ctp-checkbox-label; fall back to body click
             for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button", "body"):
                 try:
                     frame.locator(sel).first.click(timeout=3_000)
@@ -134,7 +137,8 @@ def _click_cf_challenge(page) -> bool:
                     return True
                 except Exception:
                     pass
-    # Fallback: button/checkbox directly on the challenge page
+
+    # Fallback: elements directly on the challenge page
     for sel in ("button:has-text('human')", "button:has-text('erify')",
                 "#challenge-form button", "input[type='checkbox']", "div.cf-turnstile"):
         try:
@@ -143,6 +147,7 @@ def _click_cf_challenge(page) -> bool:
             return True
         except Exception:
             pass
+
     log.warning("CF click: no matching element found.")
     return False
 
