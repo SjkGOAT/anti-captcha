@@ -8,6 +8,7 @@ import os
 import io
 import sys
 import time
+import random
 import logging
 from pathlib import Path
 
@@ -117,7 +118,7 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # Browser actions
 # ---------------------------------------------------------------------------
 
-def _wait_for_cf_frame(page, timeout_ms=12_000):
+def _wait_for_cf_frame(page, timeout_ms=25_000):
     """Poll until a challenges.cloudflare.com frame is present, then return it."""
     deadline = time.time() + timeout_ms / 1000
     while time.time() < deadline:
@@ -126,6 +127,29 @@ def _wait_for_cf_frame(page, timeout_ms=12_000):
                 return frame
         page.wait_for_timeout(500)
     return None
+
+
+def _human_move_and_click(page, frame, selector):
+    """Move the mouse naturally to an element in a frame then click it."""
+    el = frame.locator(selector).first
+    box = el.bounding_box()
+    if not box:
+        return False
+    # Find the iframe's position on the main page
+    iframe_el = page.locator("iframe[src*='challenges.cloudflare.com']").first
+    iframe_box = iframe_el.bounding_box()
+    if not iframe_box:
+        return False
+    # Absolute coords of the target element
+    tx = iframe_box["x"] + box["x"] + box["width"] / 2 + random.randint(-4, 4)
+    ty = iframe_box["y"] + box["y"] + box["height"] / 2 + random.randint(-4, 4)
+    # Start from a random spot on the page, glide toward target
+    page.mouse.move(random.randint(100, 600), random.randint(100, 400))
+    page.wait_for_timeout(random.randint(150, 350))
+    page.mouse.move(tx, ty, steps=random.randint(8, 15))
+    page.wait_for_timeout(random.randint(80, 200))
+    page.mouse.click(tx, ty)
+    return True
 
 
 def _click_cf_challenge(page) -> bool:
@@ -137,16 +161,23 @@ def _click_cf_challenge(page) -> bool:
             cf_frame.wait_for_load_state("domcontentloaded", timeout=8_000)
         except Exception:
             pass
-        for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button", "body"):
+        for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button"):
             try:
-                cf_frame.locator(sel).first.click(timeout=3_000)
-                log.info("Clicked CF iframe element (%s).", sel)
-                return True
+                if _human_move_and_click(page, cf_frame, sel):
+                    log.info("Human-clicked CF iframe element (%s).", sel)
+                    return True
             except Exception:
                 pass
+        # Last-resort: synthetic click on body
+        try:
+            cf_frame.locator("body").first.click(timeout=3_000)
+            log.info("Clicked CF iframe body.")
+            return True
+        except Exception:
+            pass
         log.warning("CF iframe found but no element clicked.")
     else:
-        log.info("CF debug — no challenges iframe yet. frames: %s", [f.url for f in page.frames])
+        log.info("CF — no Turnstile iframe after 25s. frames: %s", [f.url for f in page.frames])
 
     # Fallback: elements directly on the challenge page
     for sel in ("button:has-text('human')", "button:has-text('erify')",
