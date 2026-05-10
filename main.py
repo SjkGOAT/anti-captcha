@@ -117,6 +117,29 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # Browser actions
 # ---------------------------------------------------------------------------
 
+def _click_cf_challenge(page) -> bool:
+    """Click the Cloudflare 'Are you human?' checkbox inside its iframe, if present."""
+    for frame in page.frames:
+        if "challenges.cloudflare.com" in (frame.url or ""):
+            log.info("CF challenge iframe found: %s", frame.url)
+            for sel in ("input[type='checkbox']", "label", "button"):
+                try:
+                    frame.locator(sel).first.click(timeout=3_000)
+                    log.info("Clicked CF challenge element (%s).", sel)
+                    return True
+                except Exception:
+                    continue
+    # Fallback: CF sometimes renders the button directly on the page
+    for sel in ("input[type='checkbox']", "[id*='challenge']", "button"):
+        try:
+            page.locator(sel).first.click(timeout=2_000)
+            log.info("Clicked CF element on main page (%s).", sel)
+            return True
+        except Exception:
+            continue
+    return False
+
+
 def is_logged_in(page) -> bool:
     # If the extend button is already visible we're on the dashboard
     try:
@@ -131,12 +154,14 @@ def login(page):
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
     log.info("Page landed on: %s", page.url)
 
-    # Poll until Cloudflare challenge clears (up to 90 s)
+    # Poll until Cloudflare challenge clears (up to 90 s), clicking it each iteration
     cf_deadline = time.time() + 90
-    while time.time() < cf_deadline:
-        if "just a moment" not in page.title().lower():
+    while "just a moment" in page.title().lower():
+        if time.time() > cf_deadline:
+            log.warning("CF challenge did not clear after 90s.")
             break
-        page.wait_for_timeout(2_000)
+        _click_cf_challenge(page)
+        page.wait_for_timeout(3_000)
     log.info("CF wait done. URL=%s  title=%r", page.url, page.title())
 
     if page.url.rstrip("/") != LOGIN_URL.rstrip("/"):
