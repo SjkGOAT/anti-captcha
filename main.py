@@ -9,9 +9,12 @@ import io
 import re
 import sys
 import time
+import select as _select
 import socket
 import random
 import logging
+import socketserver as _socketserver
+import threading
 from pathlib import Path
 from urllib.parse import urlparse
 
@@ -352,12 +355,68 @@ def _update_etc_hosts(host_ip: dict) -> None:
         log.warning("Could not update /etc/hosts: %s", e)
 
 
-def _prepare_dns(urls: list) -> str | None:
-    """Pre-resolve hostnames, update /etc/hosts, return --host-resolver-rules value."""
+def _prepare_dns(urls: list) -> None:
+    """Pre-resolve hostnames and update /etc/hosts for the system resolver."""
     host_ip = _resolve_hostnames(urls)
     _update_etc_hosts(host_ip)
-    rules = [f"MAP {host} {ip}" for host, ip in host_ip.items()]
-    return ",".join(rules) if rules else None
+
+
+# ---------------------------------------------------------------------------
+# Local CONNECT proxy (bypasses patchright Chromium's broken DNS resolver)
+# ---------------------------------------------------------------------------
+
+class _ProxyServer(_socketserver.ThreadingTCPServer):
+    allow_reuse_address = True
+    daemon_threads = True
+
+
+class _ConnectProxyHandler(_socketserver.BaseRequestHandler):
+    """HTTP CONNECT tunnel: Chrome connects here, we resolve DNS via Python."""
+
+    def handle(self):
+        try:
+            buf = b""
+            while b"\r\n\r\n" not in buf:
+                chunk = self.request.recv(4096)
+                if not chunk:
+                    return
+                buf += chunk
+            first_line = buf.split(b"\r\n")[0].decode("ascii", errors="ignore")
+            parts = first_line.split()
+            if len(parts) < 2 or parts[0] != "CONNECT":
+                return
+            host, _, port_str = parts[1].rpartition(":")
+            port = int(port_str) if port_str.isdigit() else 443
+            remote = socket.create_connection((host, port), timeout=30)
+            self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+            self.request.setblocking(False)
+            remote.setblocking(False)
+            while True:
+                r, _, _ = _select.select([self.request, remote], [], [], 120)
+                if not r:
+                    break
+                for s in r:
+                    other = remote if s is self.request else self.request
+                    try:
+                        data = s.recv(65536)
+                    except OSError:
+                        return
+                    if not data:
+                        return
+                    try:
+                        other.sendall(data)
+                    except OSError:
+                        return
+        except Exception:
+            pass
+
+
+def _start_local_proxy(port: int = 8877) -> int:
+    """Start a background CONNECT proxy on localhost; returns the bound port."""
+    server = _ProxyServer(("127.0.0.1", port), _ConnectProxyHandler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    log.info("Local CONNECT proxy started on 127.0.0.1:%d", port)
+    return port
 
 
 def run():
@@ -365,12 +424,16 @@ def run():
     model = build_gemini_model()
     Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
 
-    host_rules = _prepare_dns([WEBSITE_URL, LOGIN_URL,
-                               "challenges.cloudflare.com"])
-    extra_args = [f"--host-resolver-rules={host_rules}"] if host_rules else []
+    _prepare_dns([WEBSITE_URL, LOGIN_URL, "challenges.cloudflare.com"])
+
+    # Use a local CONNECT proxy so Chromium's broken DNS is bypassed entirely;
+    # the proxy resolves hostnames via Python's system resolver (same as curl).
+    if PROXY_SERVER:
+        proxy = {"server": PROXY_SERVER}
+    else:
+        proxy = {"server": f"http://127.0.0.1:{_start_local_proxy()}"}
 
     with sync_playwright() as p:
-        proxy = {"server": PROXY_SERVER} if PROXY_SERVER else None
         context = p.chromium.launch_persistent_context(
             USER_DATA_DIR,
             headless=HEADLESS,
@@ -380,9 +443,6 @@ def run():
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-features=DnsOverHttps,DnsHttpsSvc,UseDnsHttpsSvcb,AsyncDns",
-                "--dns-prefetch-disable",
-                *extra_args,
             ],
         )
         page = context.new_page()
