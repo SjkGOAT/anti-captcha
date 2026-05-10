@@ -49,6 +49,18 @@ USER_DATA_DIR          = os.getenv("USER_DATA_DIR", "./browser_data")
 HEADLESS               = os.getenv("HEADLESS", "true").lower() != "false"
 PROXY_SERVER           = os.getenv("PROXY_SERVER", "")
 
+_STEALTH_JS = (
+    "Object.defineProperty(navigator,'webdriver',{get:()=>undefined});"
+    "Object.defineProperty(navigator,'languages',{get:()=>['en-US','en']});"
+    "Object.defineProperty(navigator,'plugins',{get:()=>[1,2,3,4,5]});"
+    "if(!window.chrome){window.chrome={runtime:{},loadTimes:function(){},csi:function(){},app:{}}}"
+)
+_USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+    "AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/124.0.0.0 Safari/537.36"
+)
+
 # ---------------------------------------------------------------------------
 # Logging
 # ---------------------------------------------------------------------------
@@ -119,9 +131,9 @@ def login(page):
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
     log.info("Page landed on: %s", page.url)
 
-    log.info("Waiting 10 seconds before checking URL...")
-    page.wait_for_timeout(10_000)
-    log.info("URL after 10s: %s", page.url)
+    log.info("Waiting 20 seconds before checking URL...")
+    page.wait_for_timeout(20_000)
+    log.info("URL after 20s: %s  title=%r", page.url, page.title())
 
     if page.url.rstrip("/") != LOGIN_URL.rstrip("/"):
         log.info("Not on login page — already redirected to dashboard, skipping login.")
@@ -129,10 +141,11 @@ def login(page):
 
     log.info("Still on login page, proceeding with login...")
     try:
-        page.wait_for_selector(USERNAME_SELECTOR, timeout=30_000)
+        page.wait_for_selector(USERNAME_SELECTOR, timeout=60_000)
     except PlaywrightTimeout:
         page.screenshot(path="login_debug.png")
-        log.error("Username field not found. URL: %s — saved screenshot to login_debug.png", page.url)
+        log.error("Username field not found. URL: %s  title=%r — saved screenshot to login_debug.png",
+                  page.url, page.title())
         raise
 
     page.fill(USERNAME_SELECTOR, SITE_USERNAME)
@@ -187,6 +200,7 @@ def run():
             USER_DATA_DIR,
             headless=HEADLESS,
             proxy=proxy,
+            user_agent=_USER_AGENT,
             args=[
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
@@ -194,7 +208,7 @@ def run():
             ],
         )
         page = context.new_page()
-        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
+        page.add_init_script(_STEALTH_JS)
         page.set_default_timeout(60_000)
 
         login(page)
