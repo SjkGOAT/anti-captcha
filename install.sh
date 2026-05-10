@@ -23,8 +23,8 @@ python3 -m venv "$INSTALL_DIR/venv"
 "$INSTALL_DIR/venv/bin/pip" install --upgrade pip -q
 "$INSTALL_DIR/venv/bin/pip" install -r "$INSTALL_DIR/requirements.txt" -q
 
-echo "==> Installing Playwright browser (Chromium)..."
-"$INSTALL_DIR/venv/bin/playwright" install chromium
+echo "==> Installing Patchright browser (Chromium)..."
+"$INSTALL_DIR/venv/bin/patchright" install chromium
 
 echo "==> Installing Playwright browser system dependencies (Ubuntu 24.04 compatible)..."
 apt-get install -y \

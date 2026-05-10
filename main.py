@@ -18,7 +18,7 @@ import requests
 from dotenv import load_dotenv
 import google.generativeai as genai
 import PIL.Image
-from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
+from patchright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
 
 load_dotenv()
 
