@@ -118,25 +118,32 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # ---------------------------------------------------------------------------
 
 def _click_cf_challenge(page) -> bool:
-    """Click the Cloudflare 'Are you human?' checkbox inside its iframe, if present."""
+    """Click the Cloudflare 'Are you human?' Turnstile widget, if present."""
     for frame in page.frames:
         if "challenges.cloudflare.com" in (frame.url or ""):
-            log.info("CF challenge iframe found: %s", frame.url)
-            for sel in ("input[type='checkbox']", "label", "button"):
+            log.info("CF iframe: %s", frame.url)
+            try:
+                frame.wait_for_load_state("domcontentloaded", timeout=8_000)
+            except Exception:
+                pass
+            # Turnstile uses .ctp-checkbox-label; fall back to body click
+            for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button", "body"):
                 try:
                     frame.locator(sel).first.click(timeout=3_000)
-                    log.info("Clicked CF challenge element (%s).", sel)
+                    log.info("Clicked CF iframe element (%s).", sel)
                     return True
                 except Exception:
-                    continue
-    # Fallback: CF sometimes renders the button directly on the page
-    for sel in ("input[type='checkbox']", "[id*='challenge']", "button"):
+                    pass
+    # Fallback: button/checkbox directly on the challenge page
+    for sel in ("button:has-text('human')", "button:has-text('erify')",
+                "#challenge-form button", "input[type='checkbox']", "div.cf-turnstile"):
         try:
             page.locator(sel).first.click(timeout=2_000)
-            log.info("Clicked CF element on main page (%s).", sel)
+            log.info("Clicked CF main-page element (%s).", sel)
             return True
         except Exception:
-            continue
+            pass
+    log.warning("CF click: no matching element found.")
     return False
 
 
