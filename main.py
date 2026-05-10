@@ -47,6 +47,7 @@ GEMINI_PROMPT          = os.getenv(
 INTERVAL_MINUTES       = int(os.getenv("INTERVAL_MINUTES", "15"))
 USER_DATA_DIR          = os.getenv("USER_DATA_DIR", "./browser_data")
 HEADLESS               = os.getenv("HEADLESS", "true").lower() != "false"
+PROXY_SERVER           = os.getenv("PROXY_SERVER", "")
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -177,9 +178,11 @@ def run():
     Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
 
     with sync_playwright() as p:
+        proxy = {"server": PROXY_SERVER} if PROXY_SERVER else None
         context = p.chromium.launch_persistent_context(
             USER_DATA_DIR,
             headless=HEADLESS,
+            proxy=proxy,
             args=["--no-sandbox", "--disable-dev-shm-usage"],
         )
         page = context.new_page()
