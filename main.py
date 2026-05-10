@@ -330,6 +330,8 @@ def run():
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
+                "--disable-features=DnsOverHttps,DnsHttpsSvc,UseDnsHttpsSvcb",
+                "--dns-prefetch-disable",
             ],
         )
         page = context.new_page()
