@@ -9,9 +9,11 @@ import io
 import re
 import sys
 import time
+import socket
 import random
 import logging
 from pathlib import Path
+from urllib.parse import urlparse
 
 import requests
 
@@ -314,10 +316,30 @@ def extend_vps(page, model):
 # Main loop
 # ---------------------------------------------------------------------------
 
+def _host_resolver_rules(urls: list) -> str | None:
+    """Resolve hostnames via Python's system DNS and return a --host-resolver-rules string."""
+    rules = []
+    for url in urls:
+        host = urlparse(url).hostname
+        if not host:
+            continue
+        try:
+            ip = socket.gethostbyname(host)
+            rules.append(f"MAP {host} {ip}")
+            log.info("Pre-resolved %s → %s", host, ip)
+        except Exception as e:
+            log.warning("Could not pre-resolve %s: %s", host, e)
+    return ", ".join(rules) if rules else None
+
+
 def run():
     validate_env()
     model = build_gemini_model()
     Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
+
+    host_rules = _host_resolver_rules([WEBSITE_URL, LOGIN_URL,
+                                       "challenges.cloudflare.com"])
+    extra_args = [f"--host-resolver-rules={host_rules}"] if host_rules else []
 
     with sync_playwright() as p:
         proxy = {"server": PROXY_SERVER} if PROXY_SERVER else None
@@ -332,6 +354,7 @@ def run():
                 "--disable-blink-features=AutomationControlled",
                 "--disable-features=DnsOverHttps,DnsHttpsSvc,UseDnsHttpsSvcb",
                 "--dns-prefetch-disable",
+                *extra_args,
             ],
         )
         page = context.new_page()
