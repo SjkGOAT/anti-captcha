@@ -116,13 +116,20 @@ def is_logged_in(page) -> bool:
 def login(page):
     log.info("Navigating to login page: %s", LOGIN_URL)
     page.goto(LOGIN_URL, wait_until="domcontentloaded")
+    log.info("Page landed on: %s", page.url)
 
     if is_logged_in(page):
         log.info("Already logged in — skipping login form.")
         return
 
-    log.info("Waiting for username field...")
-    page.wait_for_selector(USERNAME_SELECTOR, timeout=60_000)
+    log.info("Waiting for username field (%s)...", USERNAME_SELECTOR)
+    try:
+        page.wait_for_selector(USERNAME_SELECTOR, timeout=60_000)
+    except PlaywrightTimeout:
+        page.screenshot(path="login_debug.png")
+        log.error("Username field not found after 60s. URL: %s — saved screenshot to login_debug.png", page.url)
+        raise
+
     page.fill(USERNAME_SELECTOR, SITE_USERNAME)
     page.fill(PASSWORD_SELECTOR, SITE_PASSWORD)
     page.click(LOGIN_SUBMIT_SELECTOR)
