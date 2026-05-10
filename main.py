@@ -15,7 +15,6 @@ from dotenv import load_dotenv
 import google.generativeai as genai
 import PIL.Image
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeout
-from playwright_stealth import stealth_sync
 
 load_dotenv()
 
@@ -195,7 +194,7 @@ def run():
             ],
         )
         page = context.new_page()
-        stealth_sync(page)
+        page.add_init_script("Object.defineProperty(navigator, 'webdriver', {get: () => undefined})")
         page.set_default_timeout(60_000)
 
         login(page)
