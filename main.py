@@ -118,47 +118,59 @@ def solve_captcha(model, image_bytes: bytes) -> str:
 # Browser actions
 # ---------------------------------------------------------------------------
 
-def _wait_for_cf_iframe_selector(page, timeout_ms=25_000):
-    """Wait until the Cloudflare challenge iframe element exists on the page."""
-    try:
-        page.wait_for_selector("iframe[src*='challenges.cloudflare.com']", timeout=timeout_ms)
-        return True
-    except Exception:
-        return False
+def _wait_for_cf_frame(page, timeout_ms=25_000):
+    """Poll page.frames until a challenges.cloudflare.com frame appears."""
+    deadline = time.time() + timeout_ms / 1000
+    while time.time() < deadline:
+        for frame in page.frames:
+            if "challenges.cloudflare.com" in (frame.url or ""):
+                return frame
+        page.wait_for_timeout(500)
+    return None
 
 
 def _click_cf_challenge(page) -> bool:
     """Click the Cloudflare 'Are you human?' Turnstile widget, if present."""
-    # Human-like mouse drift before interacting
     page.mouse.move(random.randint(80, 500), random.randint(80, 350))
     page.wait_for_timeout(random.randint(300, 700))
 
-    if not _wait_for_cf_iframe_selector(page):
-        log.info("CF — no Turnstile iframe after 25s. frames: %s", [f.url for f in page.frames])
+    cf_frame = _wait_for_cf_frame(page)
+    if not cf_frame:
+        log.info("CF — no iframe after 25s. frames: %s", [f.url for f in page.frames])
     else:
-        log.info("CF iframe present. Trying frame_locator click...")
-        # frame_locator is Playwright's recommended cross-origin iframe API
-        fl = page.frame_locator("iframe[src*='challenges.cloudflare.com']")
-        for sel in (".ctp-checkbox-label", "input[type='checkbox']", "label", "button"):
+        log.info("CF iframe ready: %s", cf_frame.url)
+        try:
+            cf_frame.wait_for_load_state("domcontentloaded", timeout=8_000)
+        except Exception:
+            pass
+
+        # Log what's actually in the iframe to help debug selectors
+        try:
+            log.info("CF iframe HTML: %.600s", cf_frame.content())
+        except Exception:
+            pass
+
+        # Try normal clicks first (fast timeout so we don't stall)
+        for sel in (".ctp-checkbox-label", "[role='checkbox']", "input[type='checkbox']",
+                    "label", "div[tabindex]", "button"):
             try:
-                fl.locator(sel).first.click(timeout=5_000)
-                log.info("Clicked CF Turnstile via frame_locator (%s).", sel)
+                cf_frame.locator(sel).first.click(timeout=4_000, force=True)
+                log.info("Clicked CF iframe (%s).", sel)
                 return True
             except Exception:
                 pass
 
-        # Fallback: click body of the iframe frame object
-        for frame in page.frames:
-            if "challenges.cloudflare.com" in (frame.url or ""):
-                try:
-                    frame.locator("body").click(timeout=4_000)
-                    log.info("Clicked CF iframe body.")
-                    return True
-                except Exception:
-                    pass
+        # Force a JS-level click on the body — bypasses all actionability checks
+        try:
+            cf_frame.evaluate("document.body.dispatchEvent(new MouseEvent('click', {bubbles:true}))")
+            log.info("JS-dispatched click on CF iframe body.")
+            return True
+        except Exception as e:
+            log.warning("JS body click failed: %s", e)
+
         log.warning("CF iframe present but no element clicked.")
 
-    # Last resort: elements directly on the challenge page
+    # Fallback: elements on the main challenge page
     for sel in ("button:has-text('human')", "#challenge-form button", "input[type='checkbox']"):
         try:
             page.locator(sel).first.click(timeout=2_000)
