@@ -316,20 +316,48 @@ def extend_vps(page, model):
 # Main loop
 # ---------------------------------------------------------------------------
 
-def _host_resolver_rules(urls: list) -> str | None:
-    """Resolve hostnames via Python's system DNS and return a --host-resolver-rules string."""
-    rules = []
-    for url in urls:
-        host = urlparse(url).hostname
-        if not host:
+def _resolve_hostnames(urls: list) -> dict:
+    """Resolve unique hostnames from a list of URLs or bare hostnames."""
+    seen: dict[str, str] = {}
+    for u in urls:
+        if not u:
+            continue
+        parsed = urlparse(u)
+        host = parsed.hostname or (u if "." in u and "/" not in u else None)
+        if not host or host in seen:
             continue
         try:
             ip = socket.gethostbyname(host)
-            rules.append(f"MAP {host} {ip}")
+            seen[host] = ip
             log.info("Pre-resolved %s → %s", host, ip)
         except Exception as e:
             log.warning("Could not pre-resolve %s: %s", host, e)
-    return ", ".join(rules) if rules else None
+    return seen
+
+
+def _update_etc_hosts(host_ip: dict) -> None:
+    """Write missing host→IP entries to /etc/hosts for the system resolver."""
+    hosts_path = Path("/etc/hosts")
+    try:
+        content = hosts_path.read_text()
+        new_lines = []
+        for host, ip in host_ip.items():
+            if f" {host}" not in content and f"\t{host}" not in content:
+                new_lines.append(f"{ip}  {host}  # anti-captcha\n")
+                log.info("Added to /etc/hosts: %s  %s", ip, host)
+        if new_lines:
+            with hosts_path.open("a") as f:
+                f.writelines(new_lines)
+    except Exception as e:
+        log.warning("Could not update /etc/hosts: %s", e)
+
+
+def _prepare_dns(urls: list) -> str | None:
+    """Pre-resolve hostnames, update /etc/hosts, return --host-resolver-rules value."""
+    host_ip = _resolve_hostnames(urls)
+    _update_etc_hosts(host_ip)
+    rules = [f"MAP {host} {ip}" for host, ip in host_ip.items()]
+    return ",".join(rules) if rules else None
 
 
 def run():
@@ -337,8 +365,8 @@ def run():
     model = build_gemini_model()
     Path(USER_DATA_DIR).mkdir(parents=True, exist_ok=True)
 
-    host_rules = _host_resolver_rules([WEBSITE_URL, LOGIN_URL,
-                                       "challenges.cloudflare.com"])
+    host_rules = _prepare_dns([WEBSITE_URL, LOGIN_URL,
+                               "challenges.cloudflare.com"])
     extra_args = [f"--host-resolver-rules={host_rules}"] if host_rules else []
 
     with sync_playwright() as p:
@@ -352,7 +380,7 @@ def run():
                 "--no-sandbox",
                 "--disable-dev-shm-usage",
                 "--disable-blink-features=AutomationControlled",
-                "--disable-features=DnsOverHttps,DnsHttpsSvc,UseDnsHttpsSvcb",
+                "--disable-features=DnsOverHttps,DnsHttpsSvc,UseDnsHttpsSvcb,AsyncDns",
                 "--dns-prefetch-disable",
                 *extra_args,
             ],
