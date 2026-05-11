@@ -319,6 +319,11 @@ def extend_vps(page, model):
 # Main loop
 # ---------------------------------------------------------------------------
 
+# Hostname → IP cache populated at startup; shared with the proxy handler
+# so it never needs to call DNS from a background thread.
+_RESOLVED_IPS: dict[str, str] = {}
+
+
 def _resolve_hostnames(urls: list) -> dict:
     """Resolve unique hostnames from a list of URLs or bare hostnames."""
     seen: dict[str, str] = {}
@@ -332,6 +337,7 @@ def _resolve_hostnames(urls: list) -> dict:
         try:
             ip = socket.gethostbyname(host)
             seen[host] = ip
+            _RESOLVED_IPS[host] = ip
             log.info("Pre-resolved %s → %s", host, ip)
         except Exception as e:
             log.warning("Could not pre-resolve %s: %s", host, e)
@@ -387,7 +393,17 @@ class _ConnectProxyHandler(_socketserver.BaseRequestHandler):
                 return
             host, _, port_str = parts[1].rpartition(":")
             port = int(port_str) if port_str.isdigit() else 443
-            remote = socket.create_connection((host, port), timeout=30)
+            # Use pre-resolved IP when available — avoids DNS in background threads.
+            dest = _RESOLVED_IPS.get(host, host)
+            try:
+                remote = socket.create_connection((dest, port), timeout=30)
+            except Exception as e:
+                log.error("Proxy: connect %s:%d (→%s) failed: %s", host, port, dest, e)
+                try:
+                    self.request.sendall(b"HTTP/1.1 502 Bad Gateway\r\n\r\n")
+                except OSError:
+                    pass
+                return
             self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
             self.request.setblocking(False)
             remote.setblocking(False)
@@ -407,8 +423,8 @@ class _ConnectProxyHandler(_socketserver.BaseRequestHandler):
                         other.sendall(data)
                     except OSError:
                         return
-        except Exception:
-            pass
+        except Exception as e:
+            log.error("Proxy handler exception: %s", e)
 
 
 def _start_local_proxy(port: int = 8877) -> int:
