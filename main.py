@@ -393,6 +393,14 @@ class _ConnectProxyHandler(_socketserver.BaseRequestHandler):
                 return
             host, _, port_str = parts[1].rpartition(":")
             port = int(port_str) if port_str.isdigit() else 443
+            # Patchright routes its init-script injection through the proxy using
+            # fake *.internal hostnames.  Acknowledge the CONNECT so Chrome doesn't
+            # abort the navigation; close immediately so patchright falls back to
+            # its CDP injection path for the actual scripts.
+            if host.endswith(".internal"):
+                log.info("Proxy: ACK patchright internal host %s (no tunnel)", host)
+                self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
+                return
             # Use pre-resolved IP when available — avoids DNS in background threads.
             dest = _RESOLVED_IPS.get(host, host)
             try:
@@ -404,6 +412,7 @@ class _ConnectProxyHandler(_socketserver.BaseRequestHandler):
                 except OSError:
                     pass
                 return
+            log.info("Proxy: tunnel %s → %s:%d", host, dest, port)
             self.request.sendall(b"HTTP/1.1 200 Connection established\r\n\r\n")
             self.request.setblocking(False)
             remote.setblocking(False)
